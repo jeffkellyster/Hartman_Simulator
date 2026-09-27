@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hartmann 6D Optimization Simulator</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Hartmann 6D Optimization Simulator</h1>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button role="tab" data-tab="lab" aria-selected="true">Lab</button>
+      <button role="tab" data-tab="compare" aria-selected="false">Compare strategies</button>
+      <button role="tab" data-tab="about" aria-selected="false">About</button>
+    </nav>
+    <label class="instructor-toggle" title="Shows the true surface and the optimum. Honor system: nothing is hidden for real.">
+      <input type="checkbox" id="instructor"> Instructor view
+    </label>
+    <span id="status" class="status" role="status">Starting…</span>
+  </header>
+
+  <main>
+    <!-- Lab ------------------------------------------------------------------------------ -->
+    <section id="tab-lab" class="lab-layout" role="tabpanel">
+      <aside class="panel setup" aria-labelledby="setup-heading">
+        <h2 id="setup-heading">Lab setup</h2>
+        <div class="fields">
+          <label>Units
+            <select id="units">
+              <option value="process">PECVD process units</option>
+              <option value="unit">Unit cube, 0 to 1</option>
+            </select>
+          </label>
+          <label>Noise SD <span><input type="number" id="noise-sd" min="0" step="0.01"> <span id="noise-unit" class="hint"></span></span></label>
+          <label title="0 = the same noise everywhere. 1 doubles the SD at the high end of the factor below.">Noise growth
+            <input type="number" id="hetero" min="0" step="0.5">
+          </label>
+          <label>Budget (runs) <input type="number" id="budget" min="1" step="1"></label>
+          <label>Seed <input type="number" id="seed" min="0" step="1"></label>
+          <label class="check"><input type="checkbox" id="blind"> Blind scenario
+            <input type="number" id="scenario" min="0" step="1" aria-label="Blind scenario seed"></label>
+        </div>
+        <div class="buttons"><button id="new-lab">Start a new lab</button></div>
+        <p class="hint">A new lab clears the measured runs. Anyone with the same settings gets the same measurements.</p>
+        <div class="meter" aria-live="polite">
+          <div class="bar"><div class="fill" id="budget-fill"></div></div>
+          <span id="budget-text" class="hint"></span>
+        </div>
+
+        <details class="group" open>
+          <summary>Design</summary>
+          <label class="params">Type <select id="design-type"></select></label>
+          <div id="design-params" class="params"></div>
+          <div class="buttons"><button id="generate">Plan this design</button></div>
+        </details>
+
+        <details class="group" open>
+          <summary>Suggest next runs</summary>
+          <div class="params">
+            <label>Method <select id="method"></select></label>
+            <label>Acquisition <select id="acquisition"></select></label>
+            <label>Runs per step <input type="number" id="batch" min="1" max="10" value="1"></label>
+          </div>
+          <div class="buttons">
+            <button id="suggest">Suggest</button>
+            <button id="auto" title="Suggest and measure, step after step, until the budget is used">Auto-run to budget</button>
+            <button id="stop-auto" hidden>Stop</button>
+          </div>
+          <p id="engine-note" class="hint"></p>
+        </details>
+
+        <details class="group">
+          <summary>Import from JMP or a CSV</summary>
+          <p class="hint">Paste a table copied from JMP, or load a CSV. Columns named after the factors
+            (for example <em>RF power</em> or <em>RF power (W)</em>) are read; a response column with values adds measured runs.</p>
+          <textarea id="import-text" rows="4" aria-label="Table to import"></textarea>
+          <div class="buttons">
+            <button id="import-file-btn">Load file…</button>
+            <input type="file" id="import-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden>
+            <button id="import-run">Import</button>
+          </div>
+          <p id="import-status" class="hint"></p>
+        </details>
+
+        <div id="pending" class="pending" hidden>
+          <strong id="pending-title"></strong>
+          <p id="pending-info" class="hint"></p>
+          <div class="buttons">
+            <button id="measure" class="primary">Measure</button>
+            <button id="discard">Discard</button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel explore" aria-labelledby="explore-heading">
+        <div class="panel-head">
+          <h2 id="explore-heading">Explore</h2>
+          <span id="slice-note" class="hint">A slice through the six factors: two on the axes, the other four at the sliders.</span>
+        </div>
+        <div class="explore-controls">
+          <label>Across <select id="axis-x"></select></label>
+          <label>Up <select id="axis-y"></select></label>
+          <label>Model <select id="model">
+            <option value="gp:matern52">Gaussian process, Matern 5/2</option>
+            <option value="gp:matern32">Gaussian process, Matern 3/2</option>
+            <option value="gp:rbf">Gaussian process, RBF</option>
+            <option value="rsm:">Quadratic RSM</option>
+          </select></label>
+          <label>Show <select id="layer">
+            <option value="mean">Prediction</option>
+            <option value="sd">Uncertainty (SD)</option>
+            <option value="acquisition">Acquisition</option>
+          </select></label>
+        </div>
+        <div class="contours">
+          <figure class="pane">
+            <figcaption>True response</figcaption>
+            <canvas id="contour-true" aria-label="True response contour"></canvas>
+            <div class="cover" id="true-cover">Hidden in the student view.<br>Measure runs and let the model show you the surface.</div>
+          </figure>
+          <figure class="pane">
+            <figcaption id="model-caption">Model</figcaption>
+            <canvas id="contour-model" aria-label="Model contour"></canvas>
+            <div class="cover" id="model-cover"></div>
+          </figure>
+        </div>
+        <div class="colorbars">
+          <canvas id="colorbar-true" aria-hidden="true"></canvas>
+          <canvas id="colorbar-model" aria-hidden="true"></canvas>
+        </div>
+        <div id="contour-legend" class="legend"></div>
+        <div id="sliders" class="sliders"></div>
+        <h3>Profiler: one factor at a time through the slice point</h3>
+        <div id="profile-legend" class="legend"></div>
+        <div id="profiler" class="profiler"></div>
+        <p id="model-info" class="hint"></p>
+      </section>
+
+      <section class="panel progress" aria-labelledby="progress-heading">
+        <h2 id="progress-heading">Convergence</h2>
+        <div id="convergence-legend" class="legend"></div>
+        <canvas id="convergence" aria-label="Best response so far against the number of runs"></canvas>
+        <div class="panel-head" style="margin-top: 12px">
+          <h2>Runs</h2>
+          <div class="buttons">
+            <button id="export">Export CSV</button>
+            <button id="clear-runs">Clear runs</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table id="runs-table"></table></div>
+        <div id="truth-box" class="truth" hidden></div>
+      </section>
+    </section>
+
+    <!-- Compare ---------------------------------------------------------------------------- -->
+    <section id="tab-compare" role="tabpanel" hidden>
+      <div class="panel compare">
+        <div class="panel-head">
+          <h2>Strategy comparison</h2>
+          <label>Show
+            <select id="compare-which">
+              <option value="true">True value at the best measured run</option>
+              <option value="observed">Best measured value</option>
+            </select>
+          </label>
+        </div>
+        <p id="compare-caption" class="hint"></p>
+        <div id="compare-legend" class="legend"></div>
+        <canvas id="compare-chart" aria-label="Median best-so-far against the number of runs, per strategy"></canvas>
+        <div class="table-wrap"><table id="compare-table"></table></div>
+        <details class="group">
+          <summary>Run your own comparison</summary>
+          <p class="hint">Uses the lab's units, noise and seed. Each replicate is a fresh run of every strategy on the
+            same noise stream. The browser is slower than Python on a laptop: a few replicates of 30–40 runs take a minute or two.</p>
+          <div class="controls">
+            <div id="live-strategies" class="checks"></div>
+            <label>Runs <input type="number" id="live-budget" min="5" max="120" value="40"></label>
+            <label>Replicates <input type="number" id="live-reps" min="1" max="50" value="5"></label>
+            <button id="live-run" class="primary">Run</button>
+            <button id="live-stop" hidden>Stop</button>
+            <progress id="live-progress" value="0" max="1" hidden></progress>
+            <button id="live-reset" hidden>Back to the saved comparison</button>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- About ------------------------------------------------------------------------------ -->
+    <section id="tab-about" role="tabpanel" hidden>
+      <div class="panel about">
+        <h2>What this is</h2>
+        <p>A teaching and testing tool for surrogate modeling, response surface methods and Bayesian optimization.
+          You tune a fictional PECVD deposition process (six factors) to get the most uniform film, with a limited
+          budget of wafers. Behind it is the Hartmann 6D test function: a sharp global minimum and a broad, flat
+          second basin that is easy to settle into.</p>
+        <h2>A first session (10 minutes)</h2>
+        <ol>
+          <li><strong>Plan a design.</strong> Keep the lab settings, pick <em>Maximin Latin hypercube</em> with 12 runs,
+            and press <em>Plan this design</em>. The planned runs show as rings on the plots.</li>
+          <li><strong>Measure.</strong> Each run costs one wafer from the budget. Measurements are noisy but repeatable:
+            the same settings and seed give the same numbers.</li>
+          <li><strong>Explore.</strong> The model panel shows the Gaussian process's prediction on a slice through two
+            factors. Move the sliders or click a plot to move the slice. Switch <em>Show</em> to Uncertainty to see where
+            the model knows least. The profiler shows one factor at a time.</li>
+          <li><strong>Optimize.</strong> Under <em>Suggest next runs</em>, pick an acquisition (expected improvement is
+            the usual start), press <em>Suggest</em>, look at where it wants to go, then <em>Measure</em>. Watch the
+            convergence chart.</li>
+          <li><strong>Compare.</strong> The <em>Compare strategies</em> tab shows how random search, a quadratic
+            response surface and Bayesian optimization do over many seeded replicates at the same budget.</li>
+        </ol>
+        <h2>For instructors</h2>
+        <ul>
+          <li><strong>Instructor view</strong> (top right) shows the true surface, the optimum and the second
+            minimum, and how far the best run is from the optimum. It works on the honor system: this page runs
+            entirely in the browser, so nothing is hidden for real.</li>
+          <li><strong>Blind scenario</strong> reorders and reverses the factors with a seed, so the published
+            Hartmann optimum can't be looked up. Give a class the same settings and seed so everyone's measurements
+            agree.</li>
+          <li>Export the runs as CSV to analyze them in JMP; a design made in JMP can be pasted in under
+            <em>Import</em>.</li>
+        </ul>
+        <h2>Other ways in</h2>
+        <p>The same engine runs as a Python package and a command-line tool (<code>hartmann design</code>,
+          <code>hartmann run</code>, <code>hartmann benchmark</code>), and a JMP add-in is on the way. See the
+          <a href="https://github.com/jeffkellyster/Hartman_Simulator">repository</a>.</p>
+        <h2>The function</h2>
+        <p>f(x) = −Σ<sub>i</sub> α<sub>i</sub> exp(−Σ<sub>j</sub> A<sub>ij</sub> (x<sub>j</sub> − P<sub>ij</sub>)²) on
+          [0, 1]⁶, with its global minimum −3.32237 (<a href="https://www.sfu.ca/~ssurjano/hart6.html">SFU library</a>).
+          In process units the response is thickness non-uniformity (%) = 6.0 + 1.5·f, so the best possible is about
+          1.02 %.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <script src="charts.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

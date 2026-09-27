@@ -13,8 +13,31 @@ There are three ways to use the same engine:
 |---|---|---|---|
 | **Command line** | running designs from JMP or a spreadsheet | Python 3.11+, NumPy, SciPy | available now |
 | **Python package** | scripts, notebooks, JMP's Python | Python 3.11+, NumPy, SciPy | available now |
-| **Browser app** | anyone; open a link, no install | a modern browser | Phase 4 |
+| **Browser app** | anyone; open a link, no install | a modern browser | available now |
 | **JMP add-in** | students designing and analyzing in JMP | JMP 18 or 19 | Phase 5 |
+
+## Browser app
+
+- **Hosted:** <https://jeffkellyster.github.io/Hartman_Simulator/> (this works once GitHub Pages is switched on for the repository). Python runs inside the page through Pyodide, so there's nothing to install. The first load downloads about 30 MB and takes a few seconds; after that it's cached.
+- **Locally**, after the quick start below:
+
+  ```
+  python scripts/serve.py            # then open http://localhost:8000/
+  python scripts/serve.py --native   # same page; the engine runs in this Python process (no internet needed, faster)
+  ```
+
+What's in it:
+- **Lab:**
+  - Choose the settings: units, noise, budget, seed, and a blind scenario.
+  - Plan runs: a design, a table pasted from JMP, or runs the optimizer suggests. Then measure them, which spends budget.
+  - Watch the model: a Gaussian process or quadratic RSM, shown as a two-factor contour of its prediction, uncertainty or acquisition value. The other four factors sit at the slider values.
+  - The profiler shows one factor at a time, and a convergence chart tracks the best run.
+  - *Auto-run* lets Bayesian optimization spend the rest of the budget.
+  - Runs export as CSV for JMP.
+  - The lab is saved in the browser, so a reload keeps it.
+- **Compare strategies:** median and interquartile range of the best-so-far value vs. runs, over 20 seeded replicates, for random search, LHS + RSM, BO with expected improvement, and BO with a confidence bound. You can also run your own smaller comparison in the page.
+- **Instructor view:** shows the true surface, the optimum, the second minimum, and how far the best run is from the optimum. It works on the honor system, because everything runs in the browser.
+- **About:** a 10-minute first session for someone opening it cold.
 
 ## Quick start (about 2 minutes)
 
@@ -153,6 +176,8 @@ f(x*) = −3.32237 at x* = (0.20169, 0.150011, 0.476874, 0.275332, 0.311652,
   - the optimization loop;
   - the benchmark runner;
   - the Branin and Rosenbrock test functions.
+- `web/` is the browser app. It's static, and the engine runs in a Pyodide Web Worker. `web/data/benchmark.json` is the saved comparison; rebuild it with `scripts/build_benchmark.py`.
+- `scripts/` has `serve.py` (local server, with a `--native` mode), `build_site.py` (the GitHub Pages build) and `build_benchmark.py`.
 - `tests/` is the pytest suite.
 - `CLAUDE.md` holds the requirements, build order and decision log.
 

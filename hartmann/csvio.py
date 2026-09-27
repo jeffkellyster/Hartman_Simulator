@@ -191,6 +191,15 @@ def design_table(points, oracle: HartmannOracle) -> Table:
     return Table(header, rows)
 
 
+def results_table(points, y, oracle: HartmannOracle) -> Table:
+    """A design table with the response filled in (None or NaN leaves a row unmeasured)."""
+    table = design_table(points, oracle)
+    for row, value in zip(table.rows, y):
+        if value is not None and np.isfinite(value):
+            row[-1] = _fmt(value)
+    return table
+
+
 def read_points(table: Table, oracle: HartmannOracle, hold: Mapping | None = None):
     """Points (n, 6) in the oracle's units, responses (NaN where empty), the response column, and warnings."""
     factors, response_col, ignored = match_columns(table.header, oracle)

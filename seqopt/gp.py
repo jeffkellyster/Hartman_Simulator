@@ -16,7 +16,10 @@ determination), r = sqrt(sum_j ((x_j - x'_j) / l_j)^2):
     "matern52":  k = (1 + sqrt(5) r + 5 r^2 / 3) exp(-sqrt(5) r)     (default)
 
 A short length scale means the response changes quickly along that input; a
-long one means the input hardly matters.
+long one means the input hardly matters. Length scales are kept between 0.05
+and 10 (on the unit cube). Below 0.05 a fit to a handful of runs puts spikes
+at the data points, and nothing in Hartmann changes that fast (its narrowest
+well has a length scale of about 0.17); above 10 an input is simply flat.
 
 The hyperparameters (log length scales, log s2, log n2) maximize the log
 marginal likelihood
@@ -95,7 +98,7 @@ class GaussianProcess:
         noise: str | float = "estimate",
         restarts: int = 4,
         seed: int = 0,
-        lengthscale_bounds: tuple[float, float] = (0.01, 10.0),
+        lengthscale_bounds: tuple[float, float] = (0.05, 10.0),
         signal_bounds: tuple[float, float] = (0.01, 100.0),
         noise_bounds: tuple[float, float] = (1e-6, 1.0),
     ):

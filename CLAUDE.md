@@ -53,8 +53,8 @@ f(x) = −Σᵢ αᵢ exp(−Σⱼ Aᵢⱼ (xⱼ − Pᵢⱼ)²) on [0,1]⁶. Th
 ## Build order (one phase at a time; check in with Jeff at the end of each)
 1. ~~Engine~~. Done: the function, noise, budget, process mapping, seeds, and tests (the optimum check and reproducibility).
 2. ~~Designs module and CSV in and out. A CLI to run a design and get the responses back~~. Done.
-3. **Current:** The optimization kernel (GP, acquisitions, loop) and the benchmark runner for strategy comparison.
-4. The browser app: contours, profiler, convergence, comparison, and the instructor/blind toggle.
+3. ~~The optimization kernel (GP, acquisitions, loop) and the benchmark runner for strategy comparison~~. Done.
+4. **Current:** The browser app: contours, profiler, convergence, comparison, and the instructor/blind toggle.
 5. The JMP add-in, plus a short lab outline for Part 2 of the race car DOE class: RSM, then BO, on the same budget.
 
 ## Architecture
@@ -77,8 +77,13 @@ hartmann/    function.py   the function, its forms, gradient, X_STAR / F_STAR, L
              oracle.py     HartmannOracle: budget, ledger, config/replay, record(), truth for the instructor
              csvio.py      parse/format tables (CSV, TSV, ;), match columns, measure_table (the table is the ledger)
              cli.py        `hartmann info | design | setup | run | truth | optimize | benchmark` (also `python -m hartmann`)
-             Later: app (JSON dispatcher), jmp_adapter
-web/ jmp/ scripts/ docs/lab/   later phases
+             app.py        JSON dispatcher handle(json) -> json for the browser (and JMP): stateless calls
+                           plus a cache of the last fitted model
+             Later: jmp_adapter
+web/         index.html, style.css (palette tokens), charts.js (Canvas charts), app.js (thin client),
+             worker.js (Pyodide 0.27.7: NumPy -> "basic", then SciPy -> "full"), data/benchmark.json
+scripts/     serve.py (--native: engine in-process at /api, worker_native.js), build_site.py, build_benchmark.py
+jmp/ docs/lab/   later phases
 tests/       pytest
 ```
 - **Oracle units:** `process` (the default) takes PECVD engineering units and returns non-uniformity (%) = 6.0 + 1.5·f, where lower is better and the best is ≈1.02%. `unit` ([0,1]) and `coded` ([−1,1]) return f itself.
@@ -112,16 +117,26 @@ tests/       pytest
 | 2026-09-27 | CSV import: missing factors are held at their center (with a warning) or at `--hold`. `Y` (JMP's default response name) is accepted as the response column. Other columns pass through untouched |
 | 2026-09-27 | Tables are written as UTF-8 with a BOM, so Excel shows °C. Tables are read as UTF-8, falling back to Windows-1252. Responses are written to 6 significant figures |
 | 2026-09-27 | `hartmann setup` writes the oracle config as JSON, which a class shares. It includes the blind scenario (honor system) |
-| 2026-09-27 | Phase 3 GP: our own ~250 lines. Its log likelihood matches scikit-learn's to 1e-6 and its predictions to 1e-7 at the same hyperparameters, and a test checks this. Bounds: length scales 0.01–10 on the unit cube, signal variance 0.01–100 and noise variance 1e-6–1 on the standardized scale. The first fit uses 4 random restarts; later fits in a loop warm-start from the previous fit, with 1 restart |
+| 2026-09-27 | Phase 3 GP: our own ~250 lines. Its log likelihood matches scikit-learn's to 1e-6 and its predictions to 1e-7 at the same hyperparameters, and a test checks this. Bounds: length scales 0.05–10 on the unit cube (raised from 0.01 in Phase 4; see below), signal variance 0.01–100 and noise variance 1e-6–1 on the standardized scale. The first fit uses 4 random restarts; later fits in a loop warm-start from the previous fit, with 1 restart |
 | 2026-09-27 | EI and PI use the plug-in incumbent (the lowest predicted mean at measured points) by default, because the lowest measurement is biased low under noise |
 | 2026-09-27 | Batch proposals pick one point at a time and add a pretend result there: the model's mean (kriging believer) or the incumbent (constant liar). **A pretend result that beats the incumbent becomes the incumbent**; without that, a believer batch piles up on one spot (a test catches this) |
 | 2026-09-27 | Default initial designs: maximin LHS of 2d runs for BO (12 in 6D), and quadratic terms + 2 for RSM (30 in 6D). RSM measures the fitted minimum, but at least 0.02 (unit cube) from any measured point, so it can't keep repeating one spot |
 | 2026-09-27 | Benchmark replicate r gives every strategy the same seed (common random numbers). It records the best observed value and, more honestly under noise, the true value at the best observed point. Median and 25th/75th percentiles go to JSON (for the browser) and to long-format CSV (for JMP's Graph Builder) |
+| 2026-09-27 | Phase 4 browser API: `hartmann/app.py` calls are stateless. The page sends the config and the runs with every call, and keeps them itself (in localStorage, so a reload keeps the lab). The only memory is a cache of the last fitted model, so moving a slider doesn't refit |
+| 2026-09-27 | `seqopt/__init__` loads its names lazily, and `hartmann.app` imports SciPy only inside model calls. So the page can design and measure as soon as NumPy is in, while SciPy loads (a test checks that importing the app leaves SciPy unloaded) |
+| 2026-09-27 | `scripts/serve.py --native` serves the same page but swaps the worker for one that POSTs to `/api` in the server process. Use it for development and for offline use. It sets BLAS to 1 thread, because threaded BLAS fighting the browser for the CPU made auto-run 17× slower (108 s vs 6.5 s) |
+| 2026-09-27 | Charts: hand-drawn Canvas with no library. Series colors are palette slots 1–4 (blue, orange, aqua, yellow), validated for colorblind separation in light and dark mode. In light mode aqua and yellow are under 3:1 contrast, so the comparison has direct end labels (when they don't collide) and a table view. Surfaces use a one-hue blue ramp whose direction flips in dark mode. Series colors follow the strategy, not its rank |
+| 2026-09-27 | GP length-scale floor raised from 0.01 to 0.05. With a handful of runs, fits hit 0.01 and spiked at the data points. Hartmann's narrowest well is about 0.17. On 10 replicates of 40 runs, BO did the same or slightly better (median EI −3.114 vs −3.058; UCB −2.854 vs −2.784) |
+| 2026-09-27 | The Compare tab opens with a saved comparison, `web/data/benchmark.json` (about 11 KB, summaries only), built by `scripts/build_benchmark.py`: 20 replicates, 60 runs, noise 0.05 %, oracle seeds 100 + r. Rebuild it whenever the kernel changes. The page can also run a smaller live comparison, one run per call, with progress and Stop |
+| 2026-09-27 | Suggest moves the slice to the first suggested point, so the contours and profiler show where it's going. Auto-run redraws the contours every 5 steps |
+| 2026-09-27 | The Pages workflow always builds the site. It publishes only if GitHub Pages is switched on (it checks the API); otherwise it posts a notice with the one-time setting, instead of failing |
+| 2026-09-27 | This build environment's network policy blocks cdn.jsdelivr.net, so the Pyodide path couldn't be run here. The page was tested end to end in headless Chromium through `--native` (light and dark mode, every tab, auto-run, import, live comparison) |
 
 ## Commands
 - Setup: `python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
 - Tests: `pytest` (a few seconds)
 - CLI: `hartmann design maximin --runs 20 -o d.csv`, `hartmann run d.csv --config lab.json -o r.csv`, `hartmann truth --config lab.json --table r.csv`
+- Browser app: `python scripts/serve.py` (Pyodide) or `python scripts/serve.py --native` (engine in-process); `python scripts/build_site.py` builds `site/`; `OPENBLAS_NUM_THREADS=1 python scripts/build_benchmark.py` rebuilds the saved comparison (about 4 minutes)
 - Optimize and compare: `hartmann optimize --strategy bo --budget 40 --truth`, `hartmann benchmark --budget 60 --replicates 20 --noise-sd 0.05 -o bench.json --csv curves.csv`
 
 ## Conventions
