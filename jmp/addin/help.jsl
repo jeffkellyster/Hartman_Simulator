@@ -1,0 +1,6 @@
+// Help: show the add-in's guide.
+Names Default To Here( 1 );
+text = Load Text File( "$ADDIN_HOME(com.hartmann.optsim)/README.md" );
+New Window( "Hartmann Simulator: help",
+	Script Box( text, "Text", 720, 620 )
+);

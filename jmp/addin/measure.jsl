@@ -1,0 +1,77 @@
+// Measure This Table: measure every row that has no response yet, like measuring wafers.
+// Rows that already have a response count as earlier measurements (against the budget), so a
+// table can be augmented and measured again. The first time, choose the lab's settings here;
+// they are stored in the table (table variable "Hartmann lab") and reused after that.
+Names Default To Here( 1 );
+Include( "$ADDIN_HOME(com.hartmann.optsim)/common.jsl" );
+
+dt = Current Data Table();
+If( Is Empty( dt ),
+	hsMessage( "Hartmann Simulator", "Open a design table first (Hartmann Simulator > Set Up a Design, then Make Table)." );
+	Throw();
+);
+lab = hsLabOf( dt );
+
+// Measure with a lab (JSON text); store it, attach analysis scripts, and report.
+hsMeasure = Function( {labJson},
+	{Default Local},
+	Try(
+		hsLab = labJson;
+		Python Send( dt );
+		Python Send( hsLab );
+		Python Submit( "\[
+from hartmann import jmp_adapter
+hs_result = jmp_adapter.to_json(jmp_adapter.run_table(dt, hsLab))
+]\" );
+		result = Parse JSON( Python Get( hs_result ) );
+		hsSetLab( dt, labJson );
+		hsAttachScripts( dt, result["factor_columns"], result["response_column"] );
+		win << Close Window;
+		hsMessage( "Hartmann Simulator", result["message"] );
+	,
+		hsMessage( "Hartmann Simulator", "Nothing was measured: " || Char( exception_msg ) || "\!NSee the log for details." )
+	);
+);
+
+If( lab != "",
+	// The table already has its lab: measure with it.
+	win = New Window( "Hartmann Simulator: measure this table",
+		V List Box(
+			Text Box( "Lab: " || hsDescribe( lab ), << Set Wrap( 560 ) ),
+			Text Box( "Every row without a response is measured. Each costs one run of the budget.", << Set Wrap( 560 ) ),
+			Spacer Box( Size( 0, 8 ) ),
+			H List Box(
+				Button Box( "Measure", hsMeasure( lab ) ),
+				Button Box( "Cancel", win << Close Window )
+			)
+		)
+	)
+,
+	// First measurement: choose the lab.
+	v = hsLabValues( "" );
+	noiseBox = Number Edit Box( v["noise"] );
+	heteroBox = Number Edit Box( v["hetero"] );
+	budgetBox = Number Edit Box( v["budget"] );
+	seedBox = Number Edit Box( v["seed"] );
+	blindBox = Check Box( {"Blind scenario (disguises where the optimum is)"} );
+	scenarioBox = Number Edit Box( v["scenario"] );
+	win = New Window( "Hartmann Simulator: measure this table",
+		V List Box(
+			Text Box( "This table has no lab yet. Choose its settings; they are stored in the table and used for every later measurement. Give a class the same settings and seed so everyone's measurements agree.",
+				<< Set Wrap( 560 ) ),
+			Spacer Box( Size( 0, 6 ) ),
+			Lineup Box( N Col( 2 ),
+				Text Box( "Noise SD (%)" ), noiseBox,
+				Text Box( "Noise growth along RF power (0 = none, 1 = doubles at 800 W)" ), heteroBox,
+				Text Box( "Budget (runs; . for none)" ), budgetBox,
+				Text Box( "Seed (. picks one and records it)" ), seedBox,
+				blindBox, scenarioBox
+			),
+			Spacer Box( Size( 0, 8 ) ),
+			H List Box(
+				Button Box( "Measure", hsMeasure( hsLabFromBoxes() ) ),
+				Button Box( "Cancel", win << Close Window )
+			)
+		)
+	);
+);

@@ -54,8 +54,8 @@ f(x) = −Σᵢ αᵢ exp(−Σⱼ Aᵢⱼ (xⱼ − Pᵢⱼ)²) on [0,1]⁶. Th
 1. ~~Engine~~. Done: the function, noise, budget, process mapping, seeds, and tests (the optimum check and reproducibility).
 2. ~~Designs module and CSV in and out. A CLI to run a design and get the responses back~~. Done.
 3. ~~The optimization kernel (GP, acquisitions, loop) and the benchmark runner for strategy comparison~~. Done.
-4. **Current:** The browser app: contours, profiler, convergence, comparison, and the instructor/blind toggle.
-5. The JMP add-in, plus a short lab outline for Part 2 of the race car DOE class: RSM, then BO, on the same budget.
+4. ~~The browser app: contours, profiler, convergence, comparison, and the instructor/blind toggle~~. Done.
+5. **Current:** The JMP add-in, plus a short lab outline for Part 2 of the race car DOE class: RSM, then BO, on the same budget.
 
 ## Architecture
 ```
@@ -79,11 +79,14 @@ hartmann/    function.py   the function, its forms, gradient, X_STAR / F_STAR, L
              cli.py        `hartmann info | design | setup | run | truth | optimize | benchmark` (also `python -m hartmann`)
              app.py        JSON dispatcher handle(json) -> json for the browser (and JMP): stateless calls
                            plus a cache of the last fitted model
-             Later: jmp_adapter
+             jmp_adapter.py  JMP: lab config (table variable "Hartmann lab"), run_table / suggest_table /
+                           truth_table on a jmp.DataTable; dt access only in _column_names/_column_values/_write_values
 web/         index.html, style.css (palette tokens), charts.js (Canvas charts), app.js (thin client),
              worker.js (Pyodide 0.27.7: NumPy -> "basic", then SciPy -> "full"), data/benchmark.json
 scripts/     serve.py (--native: engine in-process at /api, worker_native.js), build_site.py, build_benchmark.py
-jmp/ docs/lab/   later phases
+jmp/         addin/ (addin.def id com.hartmann.optsim, addin.jmpcust menu, *.jsl), README.md (guide = Help),
+             HartmannSimulator.jmpaddin (built, committed, engine wheel bundled)
+docs/lab/    part2-rsm-then-bo.md (the Part 2 lab outline)
 tests/       pytest
 ```
 - **Oracle units:** `process` (the default) takes PECVD engineering units and returns non-uniformity (%) = 6.0 + 1.5·f, where lower is better and the best is ≈1.02%. `unit` ([0,1]) and `coded` ([−1,1]) return f itself.
@@ -131,12 +134,21 @@ tests/       pytest
 | 2026-09-27 | Suggest moves the slice to the first suggested point, so the contours and profiler show where it's going. Auto-run redraws the contours every 5 steps |
 | 2026-09-27 | The Pages workflow always builds the site. It publishes only if GitHub Pages is switched on (it checks the API); otherwise it posts a notice with the one-time setting, instead of failing |
 | 2026-09-27 | This build environment's network policy blocks cdn.jsdelivr.net, so the Pyodide path couldn't be run here. The page was tested end to end in headless Chromium through `--native` (light and dark mode, every tab, auto-run, import, live comparison) |
+| 2026-09-27 | Phase 5 JMP add-in (id `com.hartmann.optsim`, JMP 18+). It mirrors the race car add-in's verified JSL patterns: `Python Send`, then `Python Submit` with a raw string, then `Python Get` and `Parse JSON`, after `Try( Python Init(), 0 )`. The menu has Install or Update Engine, Set Up a Design, Measure This Table, Suggest Next Runs, Lab Settings, Instructor View and Help |
+| 2026-09-27 | In JMP the table is the ledger, as with the command line. The lab's config is stored in the table variable "Hartmann lab" (JSON), with a readable "Hartmann lab settings" beside it, so a table carries its own lab. Measure asks for the settings the first time |
+| 2026-09-27 | The adapter builds every dialog message in Python and returns strings. JSL never has to interpret JSON nulls, and only reads `response_column`, `factor_columns`, `columns` and `points` |
+| 2026-09-27 | Suggest Next Runs needs a column for every factor, so suggestions can be written back as rows. It caps q so that measured rows, waiting rows and the new ones together stay within the budget. JSL appends and selects the rows |
+| 2026-09-27 | Measure attaches three scripts: an RSM full quadratic (`& RS` effects, with the profiler), a Gaussian process (nugget estimated), and a convergence Graph Builder over added `Run` and `Best so far` formula columns. Each is wrapped in `Try`, so a failing script never undoes a measurement |
+| 2026-09-27 | The built `.jmpaddin` is committed with the engine wheel inside, so a colleague can download it and go. `tests/test_addin.py` fails when the committed add-in's scripts, README or bundled engine modules differ from the source. After changing the engine or `jmp/addin/`, run `scripts/build_release.py` |
+| 2026-09-27 | JSL can't run here (no JMP). `tests/test_addin.py` checks what it can: bracket balance with strings and comments stripped, that every embedded Python block compiles, that every `jmp_adapter.<name>` it calls exists, the add-in id, includes and menu targets. The bundled wheel was installed into a fresh Python 3.13 the way Install or Update Engine does it, and checked. **The add-in still needs a first run in JMP 18 and 19** |
+| 2026-09-27 | The Part 2 lab (docs/lab) uses 60 wafers for each of classical RSM (screen 18, then a CCD of about 27 on the vital few, then 3 confirmation runs, then 12 at the team's discretion) and BO (12 space-filling runs, then the suggest/measure loop, keeping 2 to confirm). The debrief uses the Instructor View and the Compare tab |
 
 ## Commands
 - Setup: `python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
 - Tests: `pytest` (a few seconds)
 - CLI: `hartmann design maximin --runs 20 -o d.csv`, `hartmann run d.csv --config lab.json -o r.csv`, `hartmann truth --config lab.json --table r.csv`
 - Browser app: `python scripts/serve.py` (Pyodide) or `python scripts/serve.py --native` (engine in-process); `python scripts/build_site.py` builds `site/`; `OPENBLAS_NUM_THREADS=1 python scripts/build_benchmark.py` rebuilds the saved comparison (about 4 minutes)
+- JMP add-in: edit `jmp/addin/` or `jmp/README.md`, then `python scripts/build_release.py` (wheel, add-in, site, `dist/` zip); `python scripts/build_addin.py` repackages only the scripts
 - Optimize and compare: `hartmann optimize --strategy bo --budget 40 --truth`, `hartmann benchmark --budget 60 --replicates 20 --noise-sd 0.05 -o bench.json --csv curves.csv`
 
 ## Conventions

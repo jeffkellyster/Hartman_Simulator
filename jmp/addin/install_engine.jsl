@@ -1,0 +1,45 @@
+// Install or Update Engine: install the bundled engine wheel, NumPy and SciPy into JMP's Python.
+// jpip splits its argument on spaces and the add-in folder path contains one
+// ("Application Support"), so the wheel is copied to a space-free temp path first.
+// JMP 18 (Python 3.11) and JMP 19 (Python 3.13) keep separate packages: install in each.
+Names Default To Here( 1 );
+
+// JMP 18 needs Python Init() before the first Python call; JMP 19 only logs that it is deprecated.
+Try( Python Init(), 0 );
+
+wheels = Files In Directory( "$ADDIN_HOME(com.hartmann.optsim)/" );
+wheel = "";
+For( i = 1, i <= N Items( wheels ), i++, If( Ends With( wheels[i], ".whl" ), wheel = wheels[i] ) );
+If( wheel == "",
+	New Window( "Hartmann Simulator", << Modal, Text Box( "No engine wheel is bundled with this add-in build." ), Button Box( "OK" ) );
+	Throw();
+);
+tmp = "/tmp/" || wheel;
+If( Host Is( "Windows" ), tmp = Convert File Path( "$TEMP/" || wheel ) );
+Copy File( "$ADDIN_HOME(com.hartmann.optsim)/" || wheel, tmp );
+
+hsWheel = tmp;
+Python Send( hsWheel );
+Python Submit( "\[
+import jmputils
+jmputils.jpip('install', '--force-reinstall --no-deps ' + hsWheel)
+jmputils.jpip('install', 'numpy scipy')
+import importlib, sys
+for _name in [m for m in list(sys.modules) if m.split('.')[0] in ('hartmann', 'seqopt')]:
+    del sys.modules[_name]
+from importlib.metadata import version
+import numpy, scipy
+from hartmann import X_STAR, hartmann6
+import seqopt.gp
+hs_check = (f"hartmann-sim {version('hartmann-sim')} with NumPy {numpy.__version__} and SciPy {scipy.__version__} "
+            f"(Python {sys.version.split()[0]}). Check: f(x*) = {hartmann6(X_STAR):.5f}, expected -3.32237.")
+]\" );
+check = Python Get( hs_check );
+New Window( "Hartmann Simulator", << Modal,
+	V List Box(
+		Text Box( "Engine installed from " || wheel || ".", << Set Wrap( 560 ) ),
+		Text Box( check, << Set Wrap( 560 ) ),
+		Text Box( "If you updated an earlier install, restart JMP so every part of the new engine is loaded.", << Set Wrap( 560 ) ),
+		Button Box( "OK" )
+	)
+);

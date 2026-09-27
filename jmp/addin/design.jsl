@@ -1,0 +1,93 @@
+// Set Up a Design: open a JMP design platform with the process factors and the response loaded.
+// Factors left unchecked are not varied; Measure This Table holds them at the center of their range.
+Names Default To Here( 1 );
+Include( "$ADDIN_HOME(com.hartmann.optsim)/common.jsl" );
+
+Python Submit( "\[
+from hartmann import jmp_adapter
+import json
+hs_factors = json.dumps(jmp_adapter.factor_definitions())
+]\" );
+factors = Parse JSON( Python Get( hs_factors ) );
+n = N Items( factors );
+
+checks = {};
+lows = {};
+highs = {};
+rows = {};
+For( i = 1, i <= n, i++,
+	f = factors[i];
+	checks[i] = Check Box( Eval List( {f["label"] || "  (" || f["unit"] || ")"} ) );
+	checks[i] << Set( 1, 1 );
+	lows[i] = Number Edit Box( f["low"] );
+	highs[i] = Number Edit Box( f["high"] );
+	Insert Into( rows, checks[i] );
+	Insert Into( rows, lows[i] );
+	Insert Into( rows, highs[i] );
+	Insert Into( rows, Text Box( "range " || Char( f["low"] ) || " to " || Char( f["high"] ) ) );
+);
+
+// JMP design platforms for continuous factors, with a note for the lab sequence.
+platformLabels = {
+	"Custom Design  (choose the model: main effects, interactions, or full quadratic for RSM)",
+	"Response Surface Design  (central composite or Box-Behnken)",
+	"Space Filling Design  (Latin hypercube and others: the start for Bayesian optimization)",
+	"Screening Design  (fractional factorials: find the vital few first)",
+	"Definitive Screening Design  (screening that also sees curvature)",
+	"Full Factorial Design  (every combination; only for a few factors)"
+};
+platformNames = {"Custom Design", "Response Surface Design", "Space Filling Design", "Screening Design",
+	"Definitive Screening Design", "Full Factorial Design"};
+
+// Reads the dialog, checks it, and opens the chosen platform. Called by the button.
+hsOpenDesign = Function( {},
+	{Default Local},
+	platform = platformNames[platformBox << Get];
+	args = {};
+	Insert Into( args, Eval Expr( Add Response( Minimize, Expr( hsResponse ), ., ., . ) ) );
+	bad = "";
+	count = 0;
+	For( i = 1, i <= n, i++,
+		If( (checks[i] << Get( 1 )) == 1,
+			f = factors[i];
+			lo = lows[i] << Get;
+			hi = highs[i] << Get;
+			If( Is Missing( lo ) | Is Missing( hi ) | lo >= hi | lo < f["low"] | hi > f["high"],
+				bad = bad || f["label"] || " needs " || Char( f["low"] ) || " <= low < high <= " || Char( f["high"] ) || ". "
+			,
+				count++;
+				Insert Into( args, Eval Expr( Add Factor( Continuous, Expr( lo ), Expr( hi ), Expr( f["label"] ), 0 ) ) );
+			);
+		)
+	);
+	If( count == 0, bad = "Check at least one factor. " || bad );
+	If( bad != "",
+		hsMessage( "Hartmann Simulator", bad ),
+		Try(
+			Eval( Substitute( Expr( DOE( _platform, _args ) ), Expr( _platform ), Parse( platform ), Expr( _args ), args ) );
+			win << Close Window;
+		,
+			hsMessage( "Hartmann Simulator", platform || " could not be opened: " || Char( exception_msg ) )
+		)
+	);
+);
+
+win = New Window( "Hartmann Simulator: set up a design",
+	V List Box(
+		Text Box( "Six factors of a PECVD deposition process. Uncheck a factor to leave it out; it is then held at the center of its range. Narrow a range to zoom in. The response, thickness non-uniformity (%), is to be minimized.",
+			<< Set Wrap( 620 ) ),
+		Spacer Box( Size( 0, 6 ) ),
+		Lineup Box( N Col( 4 ), Text Box( "Factor" ), Text Box( "Low" ), Text Box( "High" ), Text Box( "" ) ),
+		hsLineup( 4, rows ),
+		Spacer Box( Size( 0, 8 ) ),
+		H List Box( Text Box( "Design platform  " ), platformBox = Combo Box( platformLabels ) ),
+		Spacer Box( Size( 0, 6 ) ),
+		Text Box( "In the platform, set the number of runs (each costs one run of the lab's budget), then Make Table. Measure it with Hartmann Simulator > Measure This Table.",
+			<< Set Wrap( 620 ) ),
+		Spacer Box( Size( 0, 8 ) ),
+		H List Box(
+			Button Box( "Open Design Platform", hsOpenDesign() ),
+			Button Box( "Cancel", win << Close Window )
+		)
+	)
+);

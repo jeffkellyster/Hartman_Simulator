@@ -14,7 +14,7 @@ There are three ways to use the same engine:
 | **Command line** | running designs from JMP or a spreadsheet | Python 3.11+, NumPy, SciPy | available now |
 | **Python package** | scripts, notebooks, JMP's Python | Python 3.11+, NumPy, SciPy | available now |
 | **Browser app** | anyone; open a link, no install | a modern browser | available now |
-| **JMP add-in** | students designing and analyzing in JMP | JMP 18 or 19 | Phase 5 |
+| **JMP add-in** | students designing and analyzing in JMP | JMP 18 or 19 | available now |
 
 ## Browser app
 
@@ -38,6 +38,23 @@ What's in it:
 - **Compare strategies:** median and interquartile range of the best-so-far value vs. runs, over 20 seeded replicates, for random search, LHS + RSM, BO with expected improvement, and BO with a confidence bound. You can also run your own smaller comparison in the page.
 - **Instructor view:** shows the true surface, the optimum, the second minimum, and how far the best run is from the optimum. It works on the honor system, because everything runs in the browser.
 - **About:** a 10-minute first session for someone opening it cold.
+
+## JMP add-in
+
+1. Download [`jmp/HartmannSimulator.jmpaddin`](jmp/HartmannSimulator.jmpaddin) and open it in JMP (File > Open).
+2. Run **Add-Ins > Hartmann Simulator > Install or Update Engine** once. It installs the bundled engine, NumPy and SciPy into JMP's Python.
+
+The menu then offers:
+- **Set Up a Design:** any JMP DOE platform, with the six factors and the response preloaded.
+- **Measure This Table:** measures the rows with no response yet, against the lab's budget. It stores the lab's settings in the table and attaches RSM, Gaussian process and convergence scripts.
+- **Suggest Next Runs:** Bayesian optimization, RSM or random. It appends the suggested rows, so JMP drives the loop.
+- **Lab Settings**, **Instructor View** and **Help**.
+
+The full guide is [`jmp/README.md`](jmp/README.md).
+
+## Teaching
+
+[`docs/lab/part2-rsm-then-bo.md`](docs/lab/part2-rsm-then-bo.md) is a 3-hour lab outline for Part 2 of the race car DOE class. Teams do classical RSM and then Bayesian optimization, each on the same 60-wafer budget, and a debrief compares both against the truth. It includes instructor setup, answer-key commands and variations.
 
 ## Quick start (about 2 minutes)
 
@@ -177,7 +194,13 @@ f(x*) = −3.32237 at x* = (0.20169, 0.150011, 0.476874, 0.275332, 0.311652,
   - the benchmark runner;
   - the Branin and Rosenbrock test functions.
 - `web/` is the browser app. It's static, and the engine runs in a Pyodide Web Worker. `web/data/benchmark.json` is the saved comparison; rebuild it with `scripts/build_benchmark.py`.
-- `scripts/` has `serve.py` (local server, with a `--native` mode), `build_site.py` (the GitHub Pages build) and `build_benchmark.py`.
+- `jmp/` holds the JMP add-in (`addin/` is the source, `HartmannSimulator.jmpaddin` the built file with the engine bundled) and its guide.
+- `docs/lab/` holds the Part 2 lab outline.
+- `scripts/` has:
+  - `serve.py`: local server, with a `--native` mode.
+  - `build_site.py`: the GitHub Pages build.
+  - `build_benchmark.py`: the saved comparison.
+  - `build_release.py`: rebuilds the engine wheel, the add-in, the site and a zip for colleagues.
 - `tests/` is the pytest suite.
 - `CLAUDE.md` holds the requirements, build order and decision log.
 

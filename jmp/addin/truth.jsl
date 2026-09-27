@@ -1,0 +1,32 @@
+// Instructor View: where the optimum and the second minimum are, in this table's units, and how
+// far the best measured row is from the optimum. Honor system: nothing is hidden for real.
+Names Default To Here( 1 );
+Include( "$ADDIN_HOME(com.hartmann.optsim)/common.jsl" );
+
+dt = Current Data Table();
+If( Is Empty( dt ),
+	hsMessage( "Hartmann Simulator", "Open a design table first." );
+	Throw();
+);
+lab = hsLabOf( dt );
+If( lab == "",
+	hsMessage( "Hartmann Simulator", "This table has no lab yet (measure it first, or set Lab Settings)." );
+	Throw();
+);
+Try(
+	hsLab = lab;
+	Python Send( dt );
+	Python Send( hsLab );
+	Python Submit( "\[
+from hartmann import jmp_adapter
+hs_truth = jmp_adapter.truth_table(dt, hsLab)['message']
+]\" );
+	New Window( "Hartmann Simulator: instructor view",
+		V List Box(
+			Text Box( Python Get( hs_truth ), << Set Wrap( 620 ) ),
+			Button Box( "OK", Current Window() << Close Window )
+		)
+	);
+,
+	hsMessage( "Hartmann Simulator", "Could not show the instructor view: " || Char( exception_msg ) )
+);

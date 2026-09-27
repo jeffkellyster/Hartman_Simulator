@@ -1,0 +1,64 @@
+<!-- Hartmann Optimization Simulator add-in menu -->
+<jm:menu_and_toolbar_customizations xmlns:jm="http://www.jmp.com/ns/menu" version="3">
+  <jm:insert_in_main_menu>
+    <jm:insert_in_menu>
+      <jm:name>Add-Ins</jm:name>
+      <jm:insert_after>
+        <jm:name></jm:name>
+        <jm:menu>
+          <jm:name>HARTMANN SIMULATOR</jm:name>
+          <jm:caption>Hartmann Simulator</jm:caption>
+          <jm:command>
+            <jm:name>HARTMANN INSTALL</jm:name>
+            <jm:caption>Install or Update Engine</jm:caption>
+            <jm:action type="path">$ADDIN_HOME(com.hartmann.optsim)\install_engine.jsl</jm:action>
+            <jm:tip>Install the bundled simulator engine, NumPy and SciPy into JMP's Python (once, and after updates)</jm:tip>
+            <jm:icon type="none"></jm:icon>
+          </jm:command>
+          <jm:command>
+            <jm:name>HARTMANN DESIGN</jm:name>
+            <jm:caption>Set Up a Design...</jm:caption>
+            <jm:action type="path">$ADDIN_HOME(com.hartmann.optsim)\design.jsl</jm:action>
+            <jm:tip>Open a JMP design platform with the six process factors and the response loaded</jm:tip>
+            <jm:icon type="none"></jm:icon>
+          </jm:command>
+          <jm:command>
+            <jm:name>HARTMANN MEASURE</jm:name>
+            <jm:caption>Measure This Table...</jm:caption>
+            <jm:action type="path">$ADDIN_HOME(com.hartmann.optsim)\measure.jsl</jm:action>
+            <jm:tip>Measure every row that has no response yet; each row costs one run of the budget</jm:tip>
+            <jm:icon type="none"></jm:icon>
+          </jm:command>
+          <jm:command>
+            <jm:name>HARTMANN SUGGEST</jm:name>
+            <jm:caption>Suggest Next Runs...</jm:caption>
+            <jm:action type="path">$ADDIN_HOME(com.hartmann.optsim)\suggest.jsl</jm:action>
+            <jm:tip>Fit a model to the measured rows and add the rows it suggests measuring next</jm:tip>
+            <jm:icon type="none"></jm:icon>
+          </jm:command>
+          <jm:command>
+            <jm:name>HARTMANN LAB</jm:name>
+            <jm:caption>Lab Settings for This Table...</jm:caption>
+            <jm:action type="path">$ADDIN_HOME(com.hartmann.optsim)\lab.jsl</jm:action>
+            <jm:tip>Noise, budget, seed and blind scenario, stored in the table</jm:tip>
+            <jm:icon type="none"></jm:icon>
+          </jm:command>
+          <jm:command>
+            <jm:name>HARTMANN TRUTH</jm:name>
+            <jm:caption>Instructor View...</jm:caption>
+            <jm:action type="path">$ADDIN_HOME(com.hartmann.optsim)\truth.jsl</jm:action>
+            <jm:tip>Where the optimum is, and how far the best measured row is from it</jm:tip>
+            <jm:icon type="none"></jm:icon>
+          </jm:command>
+          <jm:command>
+            <jm:name>HARTMANN HELP</jm:name>
+            <jm:caption>Help</jm:caption>
+            <jm:action type="path">$ADDIN_HOME(com.hartmann.optsim)\help.jsl</jm:action>
+            <jm:tip>How to use the simulator from JMP</jm:tip>
+            <jm:icon type="none"></jm:icon>
+          </jm:command>
+        </jm:menu>
+      </jm:insert_after>
+    </jm:insert_in_menu>
+  </jm:insert_in_main_menu>
+</jm:menu_and_toolbar_customizations>

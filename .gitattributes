@@ -1,0 +1,13 @@
+# Keep source byte-identical on every OS: the bundled engine in the JMP add-in is
+# checked against these files (tests/test_addin.py), and CRLF would look like a change.
+*.py text eol=lf
+*.jsl text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.jmpcust text eol=lf
+*.def text eol=lf
+*.jmpaddin binary
+*.whl binary

@@ -1,0 +1,54 @@
+// Lab Settings for This Table: view or change the noise, budget, seed and blind scenario
+// stored in the table (table variable "Hartmann lab").
+Names Default To Here( 1 );
+Include( "$ADDIN_HOME(com.hartmann.optsim)/common.jsl" );
+
+dt = Current Data Table();
+If( Is Empty( dt ),
+	hsMessage( "Hartmann Simulator", "Open a design table first." );
+	Throw();
+);
+lab = hsLabOf( dt );
+current = If( lab == "", "This table has no lab yet; these are the usual starting settings.", "Current lab: " || hsDescribe( lab ) );
+
+v = hsLabValues( lab );
+noiseBox = Number Edit Box( v["noise"] );
+heteroBox = Number Edit Box( v["hetero"] );
+budgetBox = Number Edit Box( v["budget"] );
+seedBox = Number Edit Box( v["seed"] );
+blindBox = Check Box( {"Blind scenario (disguises where the optimum is)"} );
+blindBox << Set( 1, v["blind"] );
+scenarioBox = Number Edit Box( v["scenario"] );
+
+hsSaveLab = Function( {},
+	{Default Local},
+	Try(
+		newLab = hsLabFromBoxes();
+		hsSetLab( dt, newLab );
+		win << Close Window;
+		hsMessage( "Hartmann Simulator", "Saved: " || hsDescribe( newLab ) );
+	,
+		hsMessage( "Hartmann Simulator", "Not saved: " || Char( exception_msg ) )
+	);
+);
+
+win = New Window( "Hartmann Simulator: lab settings",
+	V List Box(
+		Text Box( current, << Set Wrap( 560 ) ),
+		Text Box( "Rows already measured keep their values. Changing the settings mid-lab changes how later rows are measured, so do it before measuring.",
+			<< Set Wrap( 560 ) ),
+		Spacer Box( Size( 0, 6 ) ),
+		Lineup Box( N Col( 2 ),
+			Text Box( "Noise SD (%)" ), noiseBox,
+			Text Box( "Noise growth along RF power (0 = none, 1 = doubles at 800 W)" ), heteroBox,
+			Text Box( "Budget (runs; . for none)" ), budgetBox,
+			Text Box( "Seed (. picks one and records it)" ), seedBox,
+			blindBox, scenarioBox
+		),
+		Spacer Box( Size( 0, 8 ) ),
+		H List Box(
+			Button Box( "Save", hsSaveLab() ),
+			Button Box( "Cancel", win << Close Window )
+		)
+	)
+);

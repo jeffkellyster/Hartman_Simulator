@@ -1,0 +1,160 @@
+// Shared helpers for the Hartmann Simulator add-in. Included by the other scripts.
+Names Default To Here( 1 );
+
+hsHome = "$ADDIN_HOME(com.hartmann.optsim)/";
+hsLabVariable = "Hartmann lab";
+hsResponse = "Thickness non-uniformity (%)";
+
+// JMP 18 needs Python Init() before the first Python call; JMP 19 only logs that it is deprecated.
+Try( Python Init(), 0 );
+
+// JMP's Python session persists, so reload the two adapter-level modules to pick up small
+// updates. Changes deeper in the engine still need a JMP restart after Install or Update Engine.
+Python Submit( "\[
+import importlib, sys
+for _name in ('hartmann.app', 'hartmann.jmp_adapter'):
+    if _name in sys.modules:
+        importlib.reload(sys.modules[_name])
+from hartmann import jmp_adapter
+]\" );
+
+// Show a message in a small window.
+hsMessage = Function( {title, text},
+	New Window( title, << Modal, V List Box( Text Box( text, << Set Wrap( 560 ) ), Button Box( "OK" ) ) )
+);
+
+// The lab settings stored in a table, as JSON text ("" when it has none).
+hsLabOf = Function( {dt},
+	{lab},
+	lab = "";
+	Try( lab = Char( dt << Get Table Variable( hsLabVariable ) ) );
+	lab;
+);
+
+// One readable line describing a lab.
+hsDescribe = Function( {lab},
+	{Default Local},
+	hsLabText = lab;
+	Python Send( hsLabText );
+	Python Submit( "\[
+from hartmann import jmp_adapter
+hs_describe = jmp_adapter.describe_lab(hsLabText)
+]\" );
+	Python Get( hs_describe );
+);
+
+// Store the lab in the table: the JSON the engine reads, and a readable companion.
+hsSetLab = Function( {dt, lab},
+	dt << Set Table Variable( hsLabVariable, lab );
+	dt << Set Table Variable( "Hartmann lab settings", hsDescribe( lab ) );
+);
+
+// Default values for the lab boxes, from a stored lab or the usual starting point.
+hsLabValues = Function( {lab},
+	{Default Local},
+	v = Associative Array();
+	v["noise"] = 0.05;
+	v["hetero"] = 0;
+	v["budget"] = 60;
+	v["seed"] = .;
+	v["blind"] = 0;
+	v["scenario"] = 1;
+	If( lab != "",
+		cfg = Parse JSON( lab );
+		v["noise"] = cfg["noise"]["sd"];
+		v["hetero"] = cfg["noise"]["hetero"];
+		v["seed"] = cfg["seed"];
+		// No budget is stored as null, which is not a number here: show it as missing.
+		v["budget"] = .;
+		Try( b = cfg["budget"]; If( Is Number( b ), v["budget"] = b ) );
+		Try(
+			v["scenario"] = cfg["scenario"]["seed"];
+			v["blind"] = 1;
+		);
+	);
+	v;
+);
+
+// A lab (JSON text) from the lab boxes the calling script created: noiseBox, heteroBox,
+// budgetBox, seedBox, blindBox and scenarioBox. A missing seed is drawn and recorded.
+hsLabFromBoxes = Function( {},
+	{Default Local},
+	hsNoise = noiseBox << Get;
+	hsHetero = heteroBox << Get;
+	hsBudget = budgetBox << Get;
+	hsSeed = seedBox << Get;
+	hsBlind = blindBox << Get( 1 );
+	hsScenario = scenarioBox << Get;
+	Python Send( hsNoise );
+	Python Send( hsHetero );
+	Python Send( hsBudget );
+	Python Send( hsSeed );
+	Python Send( hsBlind );
+	Python Send( hsScenario );
+	Python Submit( "\[
+from hartmann import jmp_adapter
+
+def _num(v):
+    return None if v is None or v != v else v
+
+hs_lab = jmp_adapter.lab_json(
+    noise_sd=_num(hsNoise) or 0.0,
+    hetero=_num(hsHetero) or 0.0,
+    budget=_num(hsBudget),
+    seed=_num(hsSeed),
+    scenario=_num(hsScenario) if hsBlind else None,
+)
+]\" );
+	Python Get( hs_lab );
+);
+
+// A column reference for a script: :Name( "RF power" )
+hsCol = Function( {name},
+	":Name( \!"" || name || "\!" )"
+);
+
+// Attach analysis scripts to a measured table: a full quadratic (RSM) with the profiler, a
+// Gaussian process, and a convergence plot (with Run and Best so far columns). Each is optional:
+// a failure here never undoes the measurements.
+hsAttachScripts = Function( {dt, factorCols, responseCol},
+	{Default Local},
+	y = hsCol( responseCol );
+	mains = {};
+	For( i = 1, i <= N Items( factorCols ), i++, Insert Into( mains, hsCol( factorCols[i] ) ) );
+	effects = {};
+	For( i = 1, i <= N Items( mains ), i++, Insert Into( effects, mains[i] || " & RS" ) );
+	For( i = 1, i <= N Items( mains ), i++,
+		For( j = i, j <= N Items( mains ), j++,
+			Insert Into( effects, mains[i] || " * " || mains[j] )
+		)
+	);
+	Try(
+		script = "Fit Model( Y( " || y || " ), Effects( " || Concat Items( effects, ", " )
+			|| " ), Personality( \!"Standard Least Squares\!" ), Emphasis( \!"Minimal Report\!" ), Run( Profiler( 1 ) ) )";
+		Eval( Parse( "dt << New Script( \!"RSM: full quadratic with profiler\!", " || script || " )" ) );
+	);
+	Try(
+		script = "Gaussian Process( Y( " || y || " ), X( " || Concat Items( mains, ", " ) || " ), Estimate Nugget Parameter( 1 ) )";
+		Eval( Parse( "dt << New Script( \!"Gaussian process\!", " || script || " )" ) );
+	);
+	Try(
+		If( !Contains( dt << Get Column Names( String ), "Run" ),
+			dt << New Column( "Run", Numeric, "Ordinal", Formula( Row() ) )
+		);
+		If( !Contains( dt << Get Column Names( String ), "Best so far" ),
+			Eval( Parse( "dt << New Column( \!"Best so far\!", Numeric, \!"Continuous\!", Formula( If( Row() == 1, "
+				|| y || ", Min( " || y || ", Lag( :Name( \!"Best so far\!" ), 1 ) ) ) ) )" ) )
+		);
+		script = "Graph Builder( Variables( X( :Run ), Y( " || y || " ), Y( :Name( \!"Best so far\!" ), Position( 1 ) ) ), "
+			|| "Elements( Points( X, Y( 1 ) ), Line( X, Y( 2 ) ) ) )";
+		Eval( Parse( "dt << New Script( \!"Convergence: best so far\!", " || script || " )" ) );
+	);
+);
+
+// Build display boxes from lists of items (a list spliced into a box shows as one item, so append instead).
+hsLineup = Function( {ncol, items},
+	{Default Local},
+	lb = Lineup Box( N Col( ncol ) );
+	For( i = 1, i <= N Items( items ), i++, lb << Append( items[i] ) );
+	lb;
+);
