@@ -11,6 +11,7 @@ There are three ways to use the same engine:
 
 | | For | Needs | Status |
 |---|---|---|---|
+| **Command line** | running designs from JMP or a spreadsheet | Python 3.11+, NumPy, SciPy | available now |
 | **Python package** | scripts, notebooks, JMP's Python | Python 3.11+, NumPy, SciPy | available now |
 | **Browser app** | anyone; open a link, no install | a modern browser | Phase 4 |
 | **JMP add-in** | students designing and analyzing in JMP | JMP 18 or 19 | Phase 5 |
@@ -22,8 +23,33 @@ git clone https://github.com/jeffkellyster/Hartman_Simulator.git
 cd Hartman_Simulator
 python3 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-pytest                                                  # about 1 second
+pytest                                                  # a few seconds
 ```
+
+## Command line: design, measure, repeat
+
+```
+hartmann info                                        # the six factors, their ranges, the response
+hartmann design maximin --runs 20 --seed 1 -o design.csv
+hartmann setup --noise-sd 0.05 --budget 60 --scenario 7 -o lab.json   # instructor, once per class
+hartmann run design.csv --config lab.json -o results.csv
+```
+
+- **`design`** writes a table with a run number, the six factors in engineering units, and an empty response column.
+  - Space filling: `random`, `lhs` (Latin hypercube), `maximin` (maximin Latin hypercube).
+  - Classical: `full` and `fractional` factorials, `pb` (Plackett–Burman), `ccd` (central composite; `--alpha face|rotatable`, `--inscribed`) and `bbd` (Box–Behnken).
+  - `hartmann design --help` lists the options.
+- **`run`** measures every row that has no response yet and writes the table back with the response filled in.
+  - Rows that already have a response count as earlier measurements. So you can augment a results table (in JMP or by hand), run it again with `--in-place`, and the new rows continue the same noise stream against the same budget.
+  - Any other columns, such as JMP's Pattern column, pass through unchanged.
+  - A factor the table leaves out is held at its center, or at `--hold "RF power=400"`.
+- **Designs from JMP:** save or copy a JMP design table (CSV, or tab-separated from the clipboard) whose columns are named after the factors, for example `RF power` or `RF power (W)`. Then `hartmann run` it and open the results back in JMP. A response column called `Y`, JMP's default, is filled in too.
+- **`setup`** saves the seed, noise, budget and blind scenario to a settings file, so every student run uses the same lab. Anything can also be passed straight to `run` (`--seed`, `--noise-sd`, `--hetero`, `--budget`, `--scenario`).
+- **`truth`** is the instructor view: `hartmann truth --config lab.json --table results.csv` shows where the optimum is and how far the best measured row is from it.
+
+`python -m hartmann` works the same as `hartmann`.
+
+## Python
 
 Measure some wafers:
 
@@ -82,8 +108,8 @@ f(x*) = −3.32237 at x* = (0.20169, 0.150011, 0.476874, 0.275332, 0.311652,
 
 ## Layout
 
-- `hartmann/` is the engine: the function, noise, process mapping, blind scenarios and the oracle.
-- `seqopt/` is the reusable optimization kernel. It isn't tied to Hartmann; designs, GP, RSM, acquisitions and the loop arrive in Phases 2–3.
+- `hartmann/` is the engine: the function, noise, process mapping, blind scenarios, the oracle, CSV tables (`csvio`) and the command line (`cli`).
+- `seqopt/` is the reusable optimization kernel. It isn't tied to Hartmann. It has the oracle contract and the design generators now; the GP, RSM, acquisitions and the loop arrive in Phase 3.
 - `tests/` is the pytest suite.
 - `CLAUDE.md` holds the requirements, build order and decision log.
 

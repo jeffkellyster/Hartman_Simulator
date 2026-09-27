@@ -51,22 +51,26 @@ f(x) = −Σᵢ αᵢ exp(−Σⱼ Aᵢⱼ (xⱼ − Pᵢⱼ)²) on [0,1]⁶. Th
    - An add-in takes a design table, evaluates it through the oracle, and returns the responses, the same way the race car add-in does.
 
 ## Build order (one phase at a time; check in with Jeff at the end of each)
-1. **Current:** Engine. The function, noise, budget, process mapping, seeds, and tests (the optimum check and reproducibility).
-2. Designs module and CSV in and out. A CLI to run a design and get the responses back.
+1. ~~Engine~~. Done: the function, noise, budget, process mapping, seeds, and tests (the optimum check and reproducibility).
+2. **Current:** Designs module and CSV in and out. A CLI to run a design and get the responses back.
 3. The optimization kernel (GP, acquisitions, loop) and the benchmark runner for strategy comparison.
 4. The browser app: contours, profiler, convergence, comparison, and the instructor/blind toggle.
 5. The JMP add-in, plus a short lab outline for Part 2 of the race car DOE class: RSM, then BO, on the same budget.
 
 ## Architecture
 ```
-seqopt/      reusable kernel. Now: oracle.py (Oracle protocol, Budget, BudgetExhausted)
-             Later: designs, gp, rsm, acquisition, loop, benchmark, testfunctions
+seqopt/      reusable kernel. oracle.py (Oracle protocol, Budget, BudgetExhausted)
+             designs.py    random, LHS, maximin LHS, full/fractional factorial, Plackett-Burman,
+                           central composite (face, rotatable, inscribed), Box-Behnken; coded matrix + .unit
+             Later: gp, rsm, acquisition, loop, benchmark, testfunctions
 hartmann/    function.py   the function, its forms, gradient, X_STAR / F_STAR, LOCAL_MINIMA
              noise.py      NoiseModel: seeded additive noise; sd·(1 + hetero·u_k)
              process.py    PECVD factors and the response map; process ↔ unit ↔ coded
              scenario.py   blind-mode disguise (seeded permutation + reflection)
-             oracle.py     HartmannOracle: budget, ledger, config/replay, truth for the instructor
-             Later: csvio, cli, app (JSON dispatcher), jmp_adapter
+             oracle.py     HartmannOracle: budget, ledger, config/replay, record(), truth for the instructor
+             csvio.py      parse/format tables (CSV, TSV, ;), match columns, measure_table (the table is the ledger)
+             cli.py        `hartmann info | design | setup | run | truth` (also `python -m hartmann`)
+             Later: app (JSON dispatcher), jmp_adapter
 web/ jmp/ scripts/ docs/lab/   later phases
 tests/       pytest
 ```
@@ -93,10 +97,19 @@ tests/       pytest
 | 2026-09-27 | A batch that would overrun the budget is refused whole, and points are validated before anything is charged |
 | 2026-09-27 | Git: push straight to `main`, with check-ins in chat (Jeff's choice) |
 | 2026-09-27 | There are 2 local minima in [0,1]⁶, not the 6 the SFU page says. Both are stored in `LOCAL_MINIMA`, and a test checks that a multistart finds nothing else |
+| 2026-09-27 | Phase 2: the race car sim's design generators are ported into `seqopt.designs`, generic over factor count, with the design as a coded matrix plus `.unit` |
+| 2026-09-27 | Box–Behnken uses Box and Behnken's (1960) tables for 3 to 7 factors (6 factors: 48 runs + 6 centers = 54, matching JMP's run counts) |
+| 2026-09-27 | Maximin LHS takes the best of 20 random LHS by phi_p (p = 15), then keeps within-column swaps that lower phi_p. For 20–60 runs in 6D this about doubles the closest-pair distance of a plain LHS |
+| 2026-09-27 | The CCD gets an `inscribed` option (divide by alpha), because Hartmann's region ends at the box. With alpha > 1 and no inscribing, the CLI refuses and says why |
+| 2026-09-27 | Results tables are the ledger. Rows that already have a response count against the budget and take the first evaluation numbers, and new rows continue from there, so two sittings give the same numbers as one |
+| 2026-09-27 | CSV import: missing factors are held at their center (with a warning) or at `--hold`. `Y` (JMP's default response name) is accepted as the response column. Other columns pass through untouched |
+| 2026-09-27 | Tables are written as UTF-8 with a BOM, so Excel shows °C. Tables are read as UTF-8, falling back to Windows-1252. Responses are written to 6 significant figures |
+| 2026-09-27 | `hartmann setup` writes the oracle config as JSON, which a class shares. It includes the blind scenario (honor system) |
 
 ## Commands
 - Setup: `python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
-- Tests: `pytest` (about 1 s)
+- Tests: `pytest` (a few seconds)
+- CLI: `hartmann design maximin --runs 20 -o d.csv`, `hartmann run d.csv --config lab.json -o r.csv`, `hartmann truth --config lab.json --table r.csv`
 
 ## Conventions
 - Follow the race car engine style:

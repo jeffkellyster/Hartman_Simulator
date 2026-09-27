@@ -160,6 +160,24 @@ class HartmannOracle:
             self.ledger.append(Evaluation(first + i, tuple(float(v) for v in x_row), float(yi), float(ti)))
         return float(y[0]) if X.ndim == 1 else y
 
+    def record(self, X, y) -> None:
+        """Enter measurements made earlier, such as rows of a results table, without measuring again.
+
+        They count against the budget and take the next evaluation numbers, so
+        measurements made afterwards continue the same noise stream.
+        """
+        X = np.asarray(X, dtype=float)
+        U = np.atleast_2d(process.to_unit(X, self.units))
+        y = np.atleast_1d(np.asarray(y, dtype=float))
+        if len(y) != len(U):
+            raise ValueError(f"{len(U)} points but {len(y)} responses")
+        if not np.all(np.isfinite(y)):
+            raise ValueError("recorded responses must be numbers")
+        first = self.budget.charge(len(U))
+        y_true = self._true(U)
+        for i, (x_row, yi, ti) in enumerate(zip(np.atleast_2d(X), y, y_true)):
+            self.ledger.append(Evaluation(first + i, tuple(float(v) for v in x_row), float(yi), float(ti)))
+
     def true_response(self, X):
         """Noiseless response at point(s); free, for the instructor view and for scoring."""
         X = np.asarray(X, dtype=float)

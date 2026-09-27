@@ -112,6 +112,19 @@ def test_each_point_costs_one_evaluation_and_an_overrun_is_refused_whole():
     assert [e.k for e in o.ledger] == [0, 1, 2, 3, 4]
 
 
+def test_recorded_measurements_count_and_later_ones_continue_the_stream():
+    X = _design(5)
+    straight = HartmannOracle(noise=NOISY, seed=4).evaluate(X)
+    resumed = HartmannOracle(noise=NOISY, seed=4, budget=5)
+    resumed.record(X[:3], straight[:3])
+    assert resumed.budget.used == 3 and [e.k for e in resumed.ledger] == [0, 1, 2]
+    assert np.array_equal(resumed.evaluate(X[3:]), straight[3:])
+    with pytest.raises(BudgetExhausted):
+        resumed.record(X[:1], straight[:1])
+    with pytest.raises(ValueError, match="responses"):
+        HartmannOracle(seed=0).record(X[:2], straight[:1])
+
+
 def test_invalid_points_are_refused_before_anything_is_charged():
     o = HartmannOracle(seed=0, budget=5)
     X = _design(2)

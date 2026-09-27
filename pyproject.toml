@@ -16,6 +16,9 @@ dependencies = ["numpy>=1.26", "scipy>=1.11"]
 [project.optional-dependencies]
 dev = ["pytest", "scikit-learn"]
 
+[project.scripts]
+hartmann = "hartmann.cli:main"
+
 [tool.setuptools]
 packages = ["hartmann", "seqopt"]
 
