@@ -5,14 +5,17 @@
     hartmann setup --noise-sd 0.05 --budget 60 --scenario 7 -o lab.json
     hartmann run design.csv --config lab.json -o results.csv
     hartmann truth --config lab.json --table results.csv
+    hartmann optimize --strategy bo --budget 40 --config lab.json -o log.csv
+    hartmann benchmark --budget 60 --replicates 10 --noise-sd 0.05 -o bench.json
 
 `run` measures every row that has no response yet and writes the table back
 with the response filled in. Rows that already have a response count as
 earlier measurements, so a results table can be augmented (in JMP or by hand)
 and run again. `setup` saves the oracle's settings (seed, noise, budget,
 blind scenario) to a file that every later `run` uses, so a class can share
-one scenario. Tables are written to stdout unless -o is given; the summary
-goes to stderr.
+one scenario. `optimize` lets one strategy spend a budget on its own (a demo,
+or an answer key), and `benchmark` compares strategies over seeded replicates.
+Tables are written to stdout unless -o is given; the summary goes to stderr.
 """
 
 from __future__ import annotations
@@ -25,6 +28,10 @@ from collections.abc import Sequence
 import numpy as np
 
 from seqopt import designs
+from seqopt.acquisition import ACQUISITIONS
+from seqopt.benchmark import run_benchmark
+from seqopt.gp import KERNELS
+from seqopt.loop import METHODS, Optimizer, Strategy
 from seqopt.oracle import BudgetExhausted
 
 from . import csvio, process
@@ -71,6 +78,16 @@ DESIGN_NAMES = {
 }
 REQUIRED = {"random": {"runs"}, "latin_hypercube": {"runs"}, "maximin_lhs": {"runs"},
             "fractional_factorial": {"runs"}}
+BENCHMARK_STRATEGIES = {
+    "random": {"method": "random"},
+    "rsm": {"method": "rsm"},
+    "bo": {"method": "bo", "acquisition": "ei"},
+    "bo-ei": {"method": "bo", "acquisition": "ei"},
+    "bo-pi": {"method": "bo", "acquisition": "pi"},
+    "bo-ucb": {"method": "bo", "acquisition": "ucb"},
+    "exploit": {"method": "bo", "acquisition": "exploit"},
+    "explore": {"method": "bo", "acquisition": "explore"},
+}
 
 
 class UsageError(ValueError):
@@ -132,6 +149,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", help="settings file from `hartmann setup`")
     _oracle_options(p)
     p.add_argument("--table", help="a results table to score against the truth")
+
+    p = sub.add_parser("optimize", help="let one strategy spend the budget on its own")
+    p.add_argument("--config", help="settings file from `hartmann setup`")
+    _oracle_options(p)
+    s = p.add_argument_group("strategy")
+    s.add_argument("--strategy", choices=METHODS, default="bo", help="bo (default), rsm or random")
+    s.add_argument("--acquisition", choices=ACQUISITIONS, default="ei", help="for bo (default ei)")
+    s.add_argument("--initial", type=int, help="initial design runs (default: 12 for bo, 30 for rsm)")
+    s.add_argument("--batch", type=int, default=1, help="points proposed per step (default 1)")
+    s.add_argument("--kernel", choices=KERNELS, default="matern52")
+    s.add_argument("--xi", type=float, default=0.0, help="EI/PI improvement margin (default 0)")
+    s.add_argument("--kappa", type=float, default=2.0, help="UCB width in SDs (default 2)")
+    s.add_argument("--opt-seed", type=int, default=0, help="seed for the strategy's own random choices")
+    p.add_argument("--truth", action="store_true", help="also report how far the best point is from the optimum")
+    p.add_argument("-o", "--out", help="evaluation log as CSV (default stdout)")
+    p.add_argument("--json", help="also write the step-by-step log (model fits, acquisition values) as JSON")
+
+    p = sub.add_parser("benchmark", help="compare strategies over seeded replicates")
+    p.add_argument("--config", help="settings file from `hartmann setup`")
+    _oracle_options(p)
+    p.add_argument("--strategies", default="random,rsm,bo",
+                   help=f"comma-separated, from {', '.join(BENCHMARK_STRATEGIES)} (default random,rsm,bo)")
+    p.add_argument("--replicates", type=int, default=10)
+    p.add_argument("--batch", type=int, default=1, help="points proposed per step by BO strategies")
+    p.add_argument("--kernel", choices=KERNELS, default="matern52")
+    p.add_argument("--opt-seed", type=int, default=0, help="seed for the strategies' own random choices")
+    p.add_argument("-o", "--out", help="full results as JSON (the browser app can load it)")
+    p.add_argument("--csv", help="best-so-far curves in long format, for JMP's Graph Builder")
     return parser
 
 
@@ -333,7 +378,93 @@ def cmd_truth(args) -> None:
         print(f"  at {_fmt_point(oracle, X[best])}")
 
 
-COMMANDS = {"info": cmd_info, "design": cmd_design, "setup": cmd_setup, "run": cmd_run, "truth": cmd_truth}
+def cmd_optimize(args) -> None:
+    notes: list[str] = []
+    oracle = _oracle(args, notes)
+    if oracle.budget.total is None:
+        raise UsageError("optimize needs a budget: --budget N, or one in the settings file")
+    strategy = Strategy(method=args.strategy, acquisition=args.acquisition, initial_runs=args.initial,
+                        batch_size=args.batch, kernel=args.kernel, xi=args.xi, kappa=args.kappa)
+    opt = Optimizer(oracle, strategy, seed=args.opt_seed, factors=[f["name"] for f in oracle.factors()])
+    opt.run()
+
+    header = ["Run", "Step", "Phase"] + [csvio.factor_header(f) for f in oracle.factors()]
+    header.append(csvio.response_header(oracle))
+    rows = [[str(r["evaluation"]), str(r["step"]), r["phase"]] + [csvio._fmt(v) for v in r["x"]] + [csvio._fmt(r["y"])]
+            for r in opt.log_rows()]
+    _write(csvio.format_table(csvio.Table(header, rows)), args.out, bom=True)
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as fh:
+            json.dump({"oracle": oracle.config, **opt.log()}, fh, indent=1)
+
+    unit = f" {oracle.response.unit}" if oracle.response.unit else ""
+    x, y = opt.best()
+    run = int(np.argmin(opt.y)) + 1
+    lines = [f"{strategy.label}: {len(opt.y)} evaluations in {len(opt.records)} steps.",
+             f"Best measured: {y:.4g}{unit} at run {run}: {_fmt_point(oracle, x)}."]
+    if args.truth:
+        true = oracle.true_response(x)
+        lines.append(f"True value there: {true:.4g}{unit}; the optimum is {oracle.optimum()['y']:.4g}{unit} "
+                     f"(gap {true - oracle.optimum()['y']:.4g}{unit}).")
+    _say(*lines, *notes)
+
+
+def cmd_benchmark(args) -> None:
+    notes: list[str] = []
+    base = _oracle(args, notes)
+    budget = base.budget.total
+    if budget is None:
+        raise UsageError("benchmark needs a budget: --budget N, or one in the settings file")
+    names = [n.strip() for n in args.strategies.split(",") if n.strip()]
+    unknown = [n for n in names if n not in BENCHMARK_STRATEGIES]
+    if unknown or not names:
+        raise UsageError(f"unknown strategies {unknown}; choose from {', '.join(BENCHMARK_STRATEGIES)}")
+    strategies = []
+    for n in dict.fromkeys(names):
+        settings = dict(BENCHMARK_STRATEGIES[n])
+        if settings["method"] == "bo":
+            settings.update(batch_size=args.batch, kernel=args.kernel)
+        strategies.append(Strategy(**settings))
+    config = {**base.config, "budget": None}
+
+    def make_oracle(r: int) -> HartmannOracle:
+        return HartmannOracle.from_config({**config, "seed": base.seed + r})
+
+    interactive = sys.stderr.isatty()
+
+    def progress(done: int, total: int, label: str) -> None:
+        if interactive:
+            print(f"\rbenchmark: {done}/{total} runs ({label})".ljust(60), end="", file=sys.stderr, flush=True)
+
+    result = run_benchmark(make_oracle, strategies, budget, args.replicates, seed=args.opt_seed,
+                           optimum=base.optimum()["y"], progress=progress)
+    if interactive:
+        print(file=sys.stderr)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump({"oracle": config, **result.to_dict()}, fh)
+    if args.csv:
+        rows = result.rows()
+        table = csvio.Table(list(rows[0]), [[csvio._fmt(v) if isinstance(v, float) else str(v) for v in r.values()]
+                                            for r in rows])
+        _write(csvio.format_table(table), args.csv, bom=True)
+
+    unit = f" {base.response.unit}" if base.response.unit else ""
+    checkpoints = sorted({max(1, round(budget * f)) for f in (0.25, 0.5, 0.75, 1.0)})
+    print(f"True value at the best measured point, median [25th-75th percentile] over {args.replicates} "
+          f"replicates. Optimum {base.optimum()['y']:.4g}{unit}.")
+    print("Strategy".ljust(16) + "".join(f"after {n}".rjust(24) for n in checkpoints))
+    for label in result.labels:
+        cells = []
+        for n in checkpoints:
+            st = result.at(n)[label]
+            cells.append(f"{st['median']:.3f} [{st['q25']:.3f}, {st['q75']:.3f}]".rjust(24))
+        print(label.ljust(16) + "".join(cells))
+    _say(*notes, *(f"{label}: {sec:.1f} s" for label, sec in result.seconds.items()))
+
+
+COMMANDS = {"info": cmd_info, "design": cmd_design, "setup": cmd_setup, "run": cmd_run, "truth": cmd_truth,
+            "optimize": cmd_optimize, "benchmark": cmd_benchmark}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

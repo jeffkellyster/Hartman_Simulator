@@ -49,6 +49,42 @@ hartmann run design.csv --config lab.json -o results.csv
 
 `python -m hartmann` works the same as `hartmann`.
 
+## Optimization: surrogates, acquisitions, and a benchmark
+
+```
+hartmann optimize --strategy bo --budget 40 --noise-sd 0.05 --truth -o log.csv
+hartmann benchmark --budget 60 --replicates 20 --noise-sd 0.05 -o bench.json --csv curves.csv
+```
+
+- **`optimize`** lets one strategy spend the whole budget on its own and logs every run: its step, phase, point and response.
+  - It's a demo, or an answer key to set beside a class's results.
+  - `--json` also saves each step's model fit and acquisition values.
+- **Strategies** (`--strategy`):
+  - `random`: points chosen at random.
+  - `rsm`: a maximin Latin hypercube big enough for the full quadratic (30 runs in 6D). Each step then fits the quadratic and measures its predicted minimum.
+  - `bo`: a 12-run maximin Latin hypercube, then Bayesian optimization.
+    - Model: a Gaussian process (Matern 5/2 by default; `--kernel matern32|rbf`).
+    - Acquisition (`--acquisition`): `ei` expected improvement, `pi` probability of improvement, `ucb` confidence bound, and the pure baselines `exploit` and `explore`.
+    - `--batch q` proposes q points per step.
+- **`benchmark`** runs several strategies over seeded replicates. It prints the median and interquartile range of the best-so-far value at four budget checkpoints.
+  - The value reported is the *true* (noiseless) value at the best measured point.
+  - `-o` writes JSON for the browser app. `--csv` writes the curves in long format, for JMP's Graph Builder.
+  - Strategy names: `random`, `rsm`, `bo`, `bo-pi`, `bo-ucb`, `exploit`, `explore`.
+  - For long benchmarks, run with `OPENBLAS_NUM_THREADS=1`. It's the same speed on a quarter of the CPU, because the matrices are small.
+  - A 20-replicate, 60-wafer run of five strategies takes about 5 minutes.
+
+In Python, the same kernel (`seqopt`) drives any function that has a dimension, bounds, a budget and an `evaluate` method:
+
+```python
+from seqopt.loop import Optimizer, Strategy
+from seqopt import testfunctions
+
+oracle = testfunctions.branin(budget=30)
+opt = Optimizer(oracle, Strategy("bo", acquisition="ei"), seed=0)
+opt.run()
+opt.best()          # best point and value; opt.log() has every step's model and acquisition
+```
+
 ## Python
 
 Measure some wafers:
@@ -109,7 +145,14 @@ f(x*) = −3.32237 at x* = (0.20169, 0.150011, 0.476874, 0.275332, 0.311652,
 ## Layout
 
 - `hartmann/` is the engine: the function, noise, process mapping, blind scenarios, the oracle, CSV tables (`csvio`) and the command line (`cli`).
-- `seqopt/` is the reusable optimization kernel. It isn't tied to Hartmann. It has the oracle contract and the design generators now; the GP, RSM, acquisitions and the loop arrive in Phase 3.
+- `seqopt/` is the reusable optimization kernel, not tied to Hartmann. It contains:
+  - the oracle contract;
+  - the design generators;
+  - the Gaussian process and quadratic RSM surrogates;
+  - the acquisition functions;
+  - the optimization loop;
+  - the benchmark runner;
+  - the Branin and Rosenbrock test functions.
 - `tests/` is the pytest suite.
 - `CLAUDE.md` holds the requirements, build order and decision log.
 

@@ -99,3 +99,28 @@ def test_unit_and_coded_tables_round_trip(tmp_path, units):
     assert run("design", "bbd", "--units", units, "-o", design) == 0
     assert run("run", design, "--units", units, "-o", results) == 0
     assert read(results).header[-1] == "y"
+
+
+def test_optimize_spends_the_budget_and_logs_every_run(tmp_path, capsys):
+    log, steps = tmp_path / "log.csv", tmp_path / "log.json"
+    assert run("optimize", "--budget", 16, "--seed", 1, "--noise-sd", 0.02, "--truth", "-o", log, "--json", steps) == 0
+    err = capsys.readouterr().err
+    assert "BO (EI): 16 evaluations" in err and "the optimum is 1.016 %" in err
+    table = read(log)
+    assert table.header[:3] == ["Run", "Step", "Phase"] and len(table.rows) == 16
+    assert json.loads(steps.read_text())["label"] == "BO (EI)"
+    assert run("optimize", "--strategy", "random", "--seed", 1) == 2
+    assert "needs a budget" in capsys.readouterr().err
+
+
+def test_benchmark_prints_a_table_and_writes_json_and_csv(tmp_path, capsys):
+    out, curves = tmp_path / "bench.json", tmp_path / "curves.csv"
+    assert run("benchmark", "--budget", 8, "--replicates", 2, "--strategies", "random,bo", "--seed", 3,
+               "--units", "unit", "-o", out, "--csv", curves) == 0
+    printed = capsys.readouterr().out
+    assert "Random" in printed and "BO (EI)" in printed and "Optimum -3.322" in printed
+    result = json.loads(out.read_text())
+    assert result["labels"] == ["Random", "BO (EI)"] and result["replicates"] == 2
+    assert len(read(curves).rows) == 2 * 2 * 8
+    assert run("benchmark", "--budget", 8, "--strategies", "annealing") == 2
+    assert "unknown strategies" in capsys.readouterr().err

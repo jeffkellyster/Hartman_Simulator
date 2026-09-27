@@ -52,8 +52,8 @@ f(x) = −Σᵢ αᵢ exp(−Σⱼ Aᵢⱼ (xⱼ − Pᵢⱼ)²) on [0,1]⁶. Th
 
 ## Build order (one phase at a time; check in with Jeff at the end of each)
 1. ~~Engine~~. Done: the function, noise, budget, process mapping, seeds, and tests (the optimum check and reproducibility).
-2. **Current:** Designs module and CSV in and out. A CLI to run a design and get the responses back.
-3. The optimization kernel (GP, acquisitions, loop) and the benchmark runner for strategy comparison.
+2. ~~Designs module and CSV in and out. A CLI to run a design and get the responses back~~. Done.
+3. **Current:** The optimization kernel (GP, acquisitions, loop) and the benchmark runner for strategy comparison.
 4. The browser app: contours, profiler, convergence, comparison, and the instructor/blind toggle.
 5. The JMP add-in, plus a short lab outline for Part 2 of the race car DOE class: RSM, then BO, on the same budget.
 
@@ -62,14 +62,21 @@ f(x) = −Σᵢ αᵢ exp(−Σⱼ Aᵢⱼ (xⱼ − Pᵢⱼ)²) on [0,1]⁶. Th
 seqopt/      reusable kernel. oracle.py (Oracle protocol, Budget, BudgetExhausted)
              designs.py    random, LHS, maximin LHS, full/fractional factorial, Plackett-Burman,
                            central composite (face, rotatable, inscribed), Box-Behnken; coded matrix + .unit
-             Later: gp, rsm, acquisition, loop, benchmark, testfunctions
+             gp.py         GaussianProcess: Matern 5/2 / 3/2 / RBF, ARD, estimated nugget, MLE (L-BFGS-B,
+                           analytic gradient, seeded restarts, warm start); fit_fixed for fantasies
+             rsm.py        QuadraticRSM: full quadratic OLS in coded units, same predict(X) -> (mean, sd)
+             acquisition.py  EI, PI, UCB, exploit, explore; maximize (candidates + L-BFGS-B polish);
+                           propose q points (kriging believer / constant liar)
+             loop.py       Strategy (random | rsm | bo + settings), Optimizer (step/run, StepRecord log)
+             benchmark.py  run_benchmark: strategies x seeded replicates -> best-so-far observed/true, median/IQR
+             testfunctions.py  FunctionOracle, Branin-Hoo, Rosenbrock
 hartmann/    function.py   the function, its forms, gradient, X_STAR / F_STAR, LOCAL_MINIMA
              noise.py      NoiseModel: seeded additive noise; sd·(1 + hetero·u_k)
              process.py    PECVD factors and the response map; process ↔ unit ↔ coded
              scenario.py   blind-mode disguise (seeded permutation + reflection)
              oracle.py     HartmannOracle: budget, ledger, config/replay, record(), truth for the instructor
              csvio.py      parse/format tables (CSV, TSV, ;), match columns, measure_table (the table is the ledger)
-             cli.py        `hartmann info | design | setup | run | truth` (also `python -m hartmann`)
+             cli.py        `hartmann info | design | setup | run | truth | optimize | benchmark` (also `python -m hartmann`)
              Later: app (JSON dispatcher), jmp_adapter
 web/ jmp/ scripts/ docs/lab/   later phases
 tests/       pytest
@@ -105,11 +112,17 @@ tests/       pytest
 | 2026-09-27 | CSV import: missing factors are held at their center (with a warning) or at `--hold`. `Y` (JMP's default response name) is accepted as the response column. Other columns pass through untouched |
 | 2026-09-27 | Tables are written as UTF-8 with a BOM, so Excel shows °C. Tables are read as UTF-8, falling back to Windows-1252. Responses are written to 6 significant figures |
 | 2026-09-27 | `hartmann setup` writes the oracle config as JSON, which a class shares. It includes the blind scenario (honor system) |
+| 2026-09-27 | Phase 3 GP: our own ~250 lines. Its log likelihood matches scikit-learn's to 1e-6 and its predictions to 1e-7 at the same hyperparameters, and a test checks this. Bounds: length scales 0.01–10 on the unit cube, signal variance 0.01–100 and noise variance 1e-6–1 on the standardized scale. The first fit uses 4 random restarts; later fits in a loop warm-start from the previous fit, with 1 restart |
+| 2026-09-27 | EI and PI use the plug-in incumbent (the lowest predicted mean at measured points) by default, because the lowest measurement is biased low under noise |
+| 2026-09-27 | Batch proposals pick one point at a time and add a pretend result there: the model's mean (kriging believer) or the incumbent (constant liar). **A pretend result that beats the incumbent becomes the incumbent**; without that, a believer batch piles up on one spot (a test catches this) |
+| 2026-09-27 | Default initial designs: maximin LHS of 2d runs for BO (12 in 6D), and quadratic terms + 2 for RSM (30 in 6D). RSM measures the fitted minimum, but at least 0.02 (unit cube) from any measured point, so it can't keep repeating one spot |
+| 2026-09-27 | Benchmark replicate r gives every strategy the same seed (common random numbers). It records the best observed value and, more honestly under noise, the true value at the best observed point. Median and 25th/75th percentiles go to JSON (for the browser) and to long-format CSV (for JMP's Graph Builder) |
 
 ## Commands
 - Setup: `python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
 - Tests: `pytest` (a few seconds)
 - CLI: `hartmann design maximin --runs 20 -o d.csv`, `hartmann run d.csv --config lab.json -o r.csv`, `hartmann truth --config lab.json --table r.csv`
+- Optimize and compare: `hartmann optimize --strategy bo --budget 40 --truth`, `hartmann benchmark --budget 60 --replicates 20 --noise-sd 0.05 -o bench.json --csv curves.csv`
 
 ## Conventions
 - Follow the race car engine style:
@@ -119,5 +132,8 @@ tests/       pytest
   - a fresh `default_rng` per draw, never global RNG state.
 - Tests: pytest, plain `def test_<behavior>()` functions, fixed seeds, fast (the whole suite runs in seconds).
 - A point (shape (6,)) gives a float, and a batch (shape (n, 6)) gives an array.
-- **BLAS threads:** many tiny linear-algebra calls from several processes oversubscribe OpenBLAS and run up to 70× slower. Set `OPENBLAS_NUM_THREADS=1`, or use `threadpoolctl`, for multi-process benchmarks.
+- **BLAS threads:** the GP's matrices are small, so OpenBLAS threads only spin.
+  - A BO benchmark runs at the same wall-clock speed with `OPENBLAS_NUM_THREADS=1`, on a quarter of the CPU (measured: 4.6 s vs 4.7 s wall-clock; 4.4 s vs 17.6 s CPU).
+  - Alongside another busy process, default threading slows small linear algebra by 10–70×.
+  - Recommend the variable for benchmarks in the docs. Don't set it inside the package, because JMP's Python environment is shared.
 - Pyodide is 32-bit, so don't pass int64 arrays to NumPy functions that expect indices (see the race car sim's decision 29).
