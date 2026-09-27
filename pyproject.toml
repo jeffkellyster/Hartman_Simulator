@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hartmann-sim"
+version = "0.1.0"
+description = "Hartmann 6D optimization simulator for teaching surrogate modeling, RSM and Bayesian optimization"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+# Loose lower bounds on purpose: JMP 18 embeds Python 3.11, where the newest
+# numpy (2.5+) and scipy (1.18+) are not available.
+dependencies = ["numpy>=1.26", "scipy>=1.11"]
+
+[project.optional-dependencies]
+dev = ["pytest", "scikit-learn"]
+
+[tool.setuptools]
+packages = ["hartmann", "seqopt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

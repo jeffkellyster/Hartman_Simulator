@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+output/
+web/engine.zip
+.DS_Store
+dist/
+site/
+build/
+jmp/addin/*.whl
