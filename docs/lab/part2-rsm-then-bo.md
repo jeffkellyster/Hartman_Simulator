@@ -96,6 +96,40 @@ The six factors and their ranges:
 
    Record the same things as in Part A.
 
+### Discussion: how *Suggest Next Runs* picks a run (about 10 minutes, during the loop)
+
+Suggest fits the add-in's own Gaussian process in Python (not JMP's platform), then asks it where
+one more run is worth the most:
+
+1. **Fit.**
+   - The factors are scaled to 0–1.
+   - The GP (Matern 5/2 by default) gets a length scale per factor and an estimated noise term.
+   - These are chosen to make the measured runs most likely.
+2. **The bar to beat** is the lowest *predicted* value at the measured runs, not the lowest
+   measurement, which is partly a lucky draw.
+3. **Score every candidate** with the chosen acquisition:
+   - expected improvement: the average amount a run there would beat the bar;
+   - or the confidence bound: the prediction minus 2 SD.
+4. **Search.**
+   - It scores 2,000 candidate settings, a quarter of them near the 5 best runs.
+   - It polishes the top 4 with a local optimizer, inside the ranges.
+5. **Batches.**
+   - It picks the runs one at a time.
+   - After each pick, the model pretends the result equals its prediction (the "kriging believer").
+     That removes the uncertainty there, so the next pick goes elsewhere.
+
+**Notes for the instructor:**
+- Suggestions are seeded by the lab seed and the number of measured rows, so the same table always
+  gets the same suggestion.
+- The attached *Gaussian process* script runs JMP's own platform, for viewing only. Its length scales
+  can differ a little from the add-in's fit.
+
+**Ask the class:**
+- Expected improvement is high in two kinds of places. What are they, and which kind is the next
+  suggestion? Compare the browser app's *Show: Uncertainty* and *Show: Acquisition* maps.
+- Why is the bar the best *prediction*, not the best measurement?
+- A batch of 3 spreads out. Where would all three go without the pretend results?
+
 ## Part C: debrief (about 30 minutes)
 
 1. **Reveal the truth.**
