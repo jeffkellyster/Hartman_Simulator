@@ -8,15 +8,40 @@ hsResponse = "Thickness non-uniformity (%)";
 // JMP 18 needs Python Init() before the first Python call; JMP 19 only logs that it is deprecated.
 Try( Python Init(), 0 );
 
-// JMP's Python session persists, so reload the two adapter-level modules to pick up small
-// updates. Changes deeper in the engine still need a JMP restart after Install or Update Engine.
+// Make sure the engine can be imported before anything else. JMP keeps add-on packages in a
+// per-user folder; if this JMP session's first install created that folder, Python isn't searching
+// it yet, so add it. JMP's Python session persists, so also reload the two adapter-level modules
+// to pick up small updates (changes deeper in the engine still need a JMP restart).
 Python Submit( "\[
-import importlib, sys
-for _name in ('hartmann.app', 'hartmann.jmp_adapter'):
-    if _name in sys.modules:
-        importlib.reload(sys.modules[_name])
-from hartmann import jmp_adapter
+import importlib, site, sys
+try:
+    _user_site = site.getusersitepackages()
+    if _user_site not in sys.path:
+        site.addsitedir(_user_site)
+except Exception:
+    pass
+importlib.invalidate_caches()
+try:
+    for _name in ('hartmann.app', 'hartmann.jmp_adapter'):
+        if _name in sys.modules:
+            importlib.reload(sys.modules[_name])
+    from hartmann import jmp_adapter
+    hs_engine_error = ''
+except Exception as _err:
+    hs_engine_error = f'{type(_err).__name__}: {_err} (Python {sys.version.split()[0]})'
 ]\" );
+hsEngineError = Python Get( hs_engine_error );
+If( hsEngineError != "",
+	New Window( "Hartmann Simulator", << Modal,
+		V List Box(
+			Text Box( "The simulator engine isn't installed in this JMP's Python yet. Run Add-Ins > Hartmann Simulator > Install or Update Engine (once for each JMP version), then try again. If you have just installed it, restart JMP first.",
+				<< Set Wrap( 560 ) ),
+			Text Box( "Details: " || hsEngineError, << Set Wrap( 560 ) ),
+			Button Box( "OK" )
+		)
+	);
+	Throw();
+);
 
 // Show a message in a small window.
 hsMessage = Function( {title, text},

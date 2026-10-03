@@ -21,25 +21,56 @@ Copy File( "$ADDIN_HOME(com.hartmann.optsim)/" || wheel, tmp );
 hsWheel = tmp;
 Python Send( hsWheel );
 Python Submit( "\[
+import importlib, os, site, sys
 import jmputils
 jmputils.jpip('install', '--force-reinstall --no-deps ' + hsWheel)
 jmputils.jpip('install', 'numpy scipy')
-import importlib, sys
+# A first install can create the per-user package folder, which Python only searches if it
+# existed at startup: add it now so the engine imports without a restart.
+try:
+    _user_site = site.getusersitepackages()
+    if _user_site not in sys.path:
+        site.addsitedir(_user_site)
+except Exception:
+    pass
+importlib.invalidate_caches()
 for _name in [m for m in list(sys.modules) if m.split('.')[0] in ('hartmann', 'seqopt')]:
     del sys.modules[_name]
-from importlib.metadata import version
-import numpy, scipy
-from hartmann import X_STAR, hartmann6
-import seqopt.gp
-hs_check = (f"hartmann-sim {version('hartmann-sim')} with NumPy {numpy.__version__} and SciPy {scipy.__version__} "
-            f"(Python {sys.version.split()[0]}). Check: f(x*) = {hartmann6(X_STAR):.5f}, expected -3.32237.")
+hs_check = ''
+hs_error = ''
+try:
+    from importlib.metadata import version
+    import numpy, scipy
+    import hartmann
+    from hartmann import X_STAR, hartmann6
+    import seqopt.gp
+    hs_check = (f"hartmann-sim {version('hartmann-sim')} with NumPy {numpy.__version__} and SciPy {scipy.__version__} "
+                f"(Python {sys.version.split()[0]}), in {os.path.dirname(os.path.dirname(hartmann.__file__))}. "
+                f"Check: f(x*) = {hartmann6(X_STAR):.5f}, expected -3.32237.")
+except Exception as _err:
+    hs_error = (f"{type(_err).__name__}: {_err}. Python {sys.version.split()[0]} at {sys.executable}. "
+                "It searches: " + "; ".join(p for p in sys.path if p))
 ]\" );
 check = Python Get( hs_check );
-New Window( "Hartmann Simulator", << Modal,
-	V List Box(
-		Text Box( "Engine installed from " || wheel || ".", << Set Wrap( 560 ) ),
-		Text Box( check, << Set Wrap( 560 ) ),
-		Text Box( "If you updated an earlier install, restart JMP so every part of the new engine is loaded.", << Set Wrap( 560 ) ),
-		Button Box( "OK" )
+problem = Python Get( hs_error );
+If( problem != "",
+	New Window( "Hartmann Simulator", << Modal,
+		V List Box(
+			Text Box( "The install didn't finish: the engine can't be imported yet.", << Set Wrap( 560 ) ),
+			Text Box( "1. Quit and restart JMP, then run Install or Update Engine again.", << Set Wrap( 560 ) ),
+			Text Box( "2. If it still fails, open View > Log, copy the installer's output (the jpip lines) and the details below, and send them along.",
+				<< Set Wrap( 560 ) ),
+			Text Box( "Details: " || problem, << Set Wrap( 560 ) ),
+			Button Box( "OK" )
+		)
+	)
+,
+	New Window( "Hartmann Simulator", << Modal,
+		V List Box(
+			Text Box( "Engine installed from " || wheel || ".", << Set Wrap( 560 ) ),
+			Text Box( check, << Set Wrap( 560 ) ),
+			Text Box( "If you updated an earlier install, restart JMP so every part of the new engine is loaded.", << Set Wrap( 560 ) ),
+			Button Box( "OK" )
+		)
 	)
 );
